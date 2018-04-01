@@ -16,8 +16,8 @@ def main():
 	print(Counter(data))
 	print(len(data))
 	h_seq = np.frombuffer(data, dtype=np.uint8)
-	h_seq = h_seq.astype(np.int32)
-	h_seq = np.concatenate((np.zeros(4**K+1).astype(np.int32), h_seq))
+	h_seq = h_seq.astype(np.int)
+	h_seq = np.concatenate((np.zeros(4**K+1).astype(np.int), h_seq))
 
 	kernelsource = '''
 	__kernel void mapToNumb(
@@ -32,7 +32,7 @@ def main():
 		int idx = gid * M + numbKmer;
 		int i, letter;
 
-		if(gid < N) {
+		if(idx < N*M + numbKmer) {
 			for(i=0; i < M; i++) {
 				letter = seq[idx+i];
 				if(letter == 65) {
@@ -96,19 +96,14 @@ def main():
 	print(work_group_size)
 	print(work_item_size)
 
-	numbGroups = 1024
-	numbItems = 64
+	numbGroups = 516
+	numbItems = 32
 
-	seqLen = np.size(h_seq)
-	q = int(seqLen/(numbGroups*numbItems))
-	if q == 0:
-		r = (numbGroups*numbItems) - seqLen	
-	else:
-		r = seqLen % q
-	if r != 0:
-		h_seq = np.concatenate((h_seq, np.zeros(r).astype(np.int32)))
-		q = q+1
-	h_numb_seq = np.zeros(np.size(h_seq)).astype(np.int32)
+	seqLen = np.size(h_seq) - 4**K - 1
+	q, r = divmod(seqLen, numbGroups*numbItems)
+	q = q + 1
+	h_seq = np.concatenate((h_seq, np.zeros(numbGroups*numbItems-r).astype(np.int)))
+	h_numb_seq = np.zeros(np.size(h_seq)).astype(np.int)
 	print(q)
 	print(r)
 
@@ -121,7 +116,7 @@ def main():
 
 	d_seq = cl.Buffer(context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf = h_seq)
 	d_numb_seq = cl.Buffer(context, cl.mem_flags.WRITE_ONLY, h_numb_seq.nbytes)
-	cl.enqueue_fill_buffer(queue, d_numb_seq, np.zeros(1).astype(np.int32), 0, h_numb_seq.nbytes)
+	cl.enqueue_fill_buffer(queue, d_numb_seq, np.zeros(1).astype(np.int), 0, h_numb_seq.nbytes)
 
 	N = numbGroups*numbItems
 	M = q
@@ -133,13 +128,15 @@ def main():
 	
 	queue.finish()
 
-	#cl.enqueue_copy(queue, h_numb_seq, d_numb_seq)
-	#print(h_numb_seq[:20])
+	cl.enqueue_copy(queue, h_numb_seq, d_numb_seq)
+	d_seq.release()
+	d_numb_seq.release()
+	print(Counter(h_numb_seq))
 
-	#d_numb_seq = cl.Buffer(context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf = h_numb_seq)
-	h_freq_seq = np.zeros(np.size(h_seq)).astype(np.int32)
+	d_numb_seq = cl.Buffer(context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf = h_numb_seq)
+	h_freq_seq = np.zeros(np.size(h_seq)).astype(np.int)
 	d_freq_seq = cl.Buffer(context, cl.mem_flags.WRITE_ONLY, h_freq_seq.nbytes)
-	cl.enqueue_fill_buffer(queue, d_freq_seq, np.zeros(1).astype(np.int32), 0, h_freq_seq.nbytes)
+	cl.enqueue_fill_buffer(queue, d_freq_seq, np.zeros(1).astype(np.int), 0, h_freq_seq.nbytes)
 
 	freqTab(queue, globalsize, None, N, M, K, numbKmer, d_numb_seq, d_freq_seq)
 
@@ -151,7 +148,7 @@ def main():
 
 	print("Mapping Done")
 	print(h_freq_seq[:numbKmer])
-	#print(Counter(data))
+	print(Counter(data))
 
 if __name__=="__main__":
 	main()
