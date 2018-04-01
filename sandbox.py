@@ -5,19 +5,19 @@ import os
 from collections import Counter
 
 def main():
-	#fname = "~/Downloads/'Bioinformatics Python'/data/hg38.chroms/chr1.fa"
-	fname = "E.ColiGenome.txt" #Toy example
-	K = 1
-	f = open(fname, 'r')
-	#f.readline()
+	fname = "../data/hg38.chroms/chr1.fa"
+	#fname = "E.ColiGenome.txt" #Toy example
+	K = 2
+	f = open(fname, 'rb')
+	f.readline()
 	data = f.read().upper().splitlines()
 	f.close()
-	data = ''.join(data).encode('utf-8')
-	print(Counter(data))
-	print(len(data))
+	data = (''.encode('utf-8')).join(data)
+	#print(Counter(data))
+	#print(len(data))
 	h_seq = np.frombuffer(data, dtype=np.uint8)
 	h_seq = h_seq.astype(np.int)
-	h_seq = np.concatenate((np.zeros(4**K+1).astype(np.int), h_seq))
+	h_seq = np.concatenate((np.zeros(4**K+2).astype(np.int), h_seq))
 
 	kernelsource = '''
 	__kernel void mapToNumb(
@@ -29,10 +29,10 @@ def main():
 	)
 	{
 		int gid = get_global_id(0);
-		int idx = gid * M + numbKmer;
+		int idx = gid * M + numbKmer + 2;
 		int i, letter;
 
-		if(idx < N*M + numbKmer) {
+		if(idx < N*M + numbKmer + 2) {
 			for(i=0; i < M; i++) {
 				letter = seq[idx+i];
 				if(letter == 65) {
@@ -47,7 +47,11 @@ def main():
 				if(letter == 84) {
 					numb_seq[idx+i] = 3;
 				} else {
+				if(letter == 78) {
 					numb_seq[idx+i] = (-1) * numbKmer;
+				} else {
+					numb_seq[idx+i] = (-1) * numbKmer - 1000000;
+				}
 				}
 				}
 				}
@@ -64,24 +68,31 @@ def main():
 		__global int* freq_seq
 	) {
 		int gid = get_global_id(0);
-		int idx = gid * M + numbKmer;
+		int idx = gid * M + numbKmer + 2;
 		int i, numb;
 		int k, p, loc_idx, ptn_idx;
+		int dgt;
 		for(i=0; i < M; i++) {
-			ptn_idx = 1;
+			ptn_idx = 0;
 			loc_idx = idx + i;
-			if(loc_idx <= (N*M + numbKmer - nK)) {
+			if(loc_idx <= (N*M + numbKmer + 2 - nK)) {
 				for(k=0; k < nK; k++) {
+					dgt = 1;
 					numb = numb_seq[loc_idx + k];
 					for(p=nK-1-k; p > 0 ; p--) {
-						ptn_idx *= 4;
+						dgt *= 4;
 					}
-					ptn_idx = ptn_idx * numb + 1;
+					ptn_idx += dgt * numb;
 				}
+				ptn_idx += 2;
 				if(ptn_idx >= 0) {
 					atomic_inc(&freq_seq[ptn_idx]);
 				} else {
+				if(ptn_idx < -1000000) {
 					atomic_inc(&freq_seq[0]);
+				} else{
+					atomic_inc(&freq_seq[1]);
+				}
 				}
 			}
 		}
@@ -96,13 +107,13 @@ def main():
 	print(work_group_size)
 	print(work_item_size)
 
-	numbGroups = 516
-	numbItems = 32
+	numbGroups = 1024
+	numbItems = 1024
 
-	seqLen = np.size(h_seq) - 4**K - 1
+	seqLen = np.size(h_seq) - 4**K - 2
 	q, r = divmod(seqLen, numbGroups*numbItems)
 	q = q + 1
-	h_seq = np.concatenate((h_seq, np.zeros(numbGroups*numbItems-r).astype(np.int)))
+	h_seq = np.concatenate((h_seq, np.repeat(78, numbGroups*numbItems-r).astype(np.int)))
 	h_numb_seq = np.zeros(np.size(h_seq)).astype(np.int)
 	print(q)
 	print(r)
@@ -120,7 +131,7 @@ def main():
 
 	N = numbGroups*numbItems
 	M = q
-	numbKmer = 4**K + 1
+	numbKmer = 4**K
 	globalsize = (N,)
 	localsize = (numbItems,)
 
@@ -131,7 +142,7 @@ def main():
 	cl.enqueue_copy(queue, h_numb_seq, d_numb_seq)
 	d_seq.release()
 	d_numb_seq.release()
-	print(Counter(h_numb_seq))
+	#print(Counter(h_numb_seq))
 
 	d_numb_seq = cl.Buffer(context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf = h_numb_seq)
 	h_freq_seq = np.zeros(np.size(h_seq)).astype(np.int)
@@ -147,8 +158,11 @@ def main():
 	cl.enqueue_copy(queue, h_freq_seq, d_freq_seq)
 
 	print("Mapping Done")
-	print(h_freq_seq[:numbKmer])
-	print(Counter(data))
+	print(h_freq_seq[:numbKmer+2])
+	#print(Counter(data))
 
 if __name__=="__main__":
+	rtime = time()
 	main()
+	rtime = time() - rtime
+	print(rtime)
