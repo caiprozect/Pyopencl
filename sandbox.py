@@ -107,8 +107,8 @@ def main():
 	print(work_group_size)
 	print(work_item_size)
 
-	numbGroups = 1024
-	numbItems = 1024
+	numbGroups = work_group_size
+	numbItems = work_item_size
 
 	seqLen = np.size(h_seq) - 4**K - 2
 	q, r = divmod(seqLen, numbGroups*numbItems)
