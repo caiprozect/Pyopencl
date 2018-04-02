@@ -151,10 +151,10 @@ def kMerCount(file, nK):
 	
 	queue.finish()
 
-	cl.enqueue_copy(queue, h_numb_seq, d_numb_seq)
+	#cl.enqueue_copy(queue, h_numb_seq, d_numb_seq)
 	
-	print(h_numb_seq[:textLen])
-	print(Counter(h_numb_seq))
+	#print(h_numb_seq[:textLen])
+	#print(Counter(h_numb_seq))
 
 	freqTab(queue, globalsize, None, N, M, K, numbKmer, d_numb_seq)
 
@@ -164,48 +164,47 @@ def kMerCount(file, nK):
 
 	print("Counting Done")
 
-	print(h_numb_seq[:textLen])
-	print(h_numb_seq[:numbKmer+2+4])
+	#print(h_numb_seq[:textLen])
+	#print(h_numb_seq[:numbKmer+2+4])
 	assert(h_numb_seq[0] == 0), "File contains unknown nucleotide characters"
 
 	return h_numb_seq[2:numbKmer+2+4]
 
 def processOrganChromDict(organChromDict, nK, outfile):
 	lNucls = ["A", "C", "G", "T"]
-	lKmer = product(range(4), repeat=nK)
+	lKmer = list(product(range(4), repeat=nK))
 	with open(outfile, 'w') as f:	
 		seqNameList = organChromDict.keys()
 		for seqName in seqNameList:
 			chromNumbs = organChromDict[seqName]
 			chromFileList = ["../data/{}.chroms/chr{}.fa".format(seqName, numb) for numb in chromNumbs]
-			freqs = np.array([kMerCount(file, K) for file in chromFileList])
+			freqs = np.array([kMerCount(file, nK).astype(np.int64) for file in chromFileList])
 			freqs = np.sum(freqs, axis=0)
 			monoCnts = freqs[:4]
-			monoFreqs = monoCnts / np.sum(monoCnts)
+			monoFreqs = monoCnts / monoCnts.sum()
 			polyCnts = freqs[4:4+4**nK]
-			polyFreqs = polyCnts / np.sum(polyCnts)
-			polyExps = [reduce(mul, kmer, 1) in lKmer]
-			flds = "{:6}{:16}{:16}{:16}"
-			f.write("{} chromosomes statistics".format(seqName))
+			polyFreqs = polyCnts / polyCnts.sum()
+			polyExps = [reduce(mul, map((lambda x: monoFreqs[x]), kmer), 1) for kmer in lKmer]
+			flds = "{:16}{:>16}{:>16}{:>16}\n"
+			mono_entries = "{:16}{:16d}{:16.5f}\n"
+			entries = "{:16}{:16d}{:16.5f}{:16.5f}\n"
+			f.write("{} chromosomes statistics\n".format(seqName))
 			f.write(flds.format("K-mer", "Counts", "Frequencies", "Expectations"))
 			for i in range(4):
-				f.write(flds.format(lNucls[i], monoCnts[i], monoFreqs[i], ""))
+				f.write(mono_entries.format(lNucls[i], monoCnts[i], monoFreqs[i]))
 			for i in range(4**nK):
 				kmer = lKmer[i]
 				kmer = reduce((lambda x,y: x+lNucls[y]), kmer, "")
-				f.write(flds.format(kmer, polyCnts[i], polyFreqs[i], polyExps[i]))
+				f.write(entries.format(kmer, polyCnts[i], polyFreqs[i], polyExps[i]))
 			f.write("\n")
 
 def main():
-	'''
-	dictChromCat = {'hg38': ([str(i) for i in range(1,23)]+['X','Y']), 'galGal3': ([str(i) for i in range(1,29)]+['32','W','Z']),
-					'dm3': ['2R', '2L', '3R', '3L', '4', 'X'], 'ce10': ['I', 'II', 'III', 'IV', 'V', 'X']}
+	dictChromCat = {'ce10': ['I', 'II', 'III', 'IV', 'V', 'X'], 'hg38': ([str(i) for i in range(1,23)]+['X','Y']), 'galGal3': ([str(i) for i in range(1,29)]+['32','W','Z']),
+					'dm3': ['2R', '2L', '3R', '3L', '4', 'X']}
 	K = 2
-	outFile = "Mission1_Opencl.txt"
+	outFile = "sandbox.txt"
 	processOrganChromDict(dictChromCat, K, outFile)
-	'''
-	y = kMerCount('test', 2)
-	print(y)
+	
 
 if __name__=="__main__":
 	rtime = time()
