@@ -5,6 +5,7 @@ import os
 from itertools import product
 from functools import reduce
 from operator import mul
+from collections import Counter
 
 os.environ["PYOPENCL_CTX"]=''
 CPU_SIDE_INT = np.int32 #Change this according to architecture
@@ -24,6 +25,7 @@ def kMerCount(file, nK):
 	K = nK
 	h_seq = genSeq(file)
 	h_seq = np.concatenate((np.zeros(2+4+4**K).astype(CPU_SIDE_INT), h_seq))
+	textLen = h_seq.size
 
 	kernelsource = '''
 	__kernel void mapToNumb(
@@ -58,9 +60,9 @@ def kMerCount(file, nK):
 					atomic_inc(&numb_seq[5]);
 				} else {
 				if(letter == 78) {
-					numb_seq[idx+i] = (-1) * numbKmer;
+					numb_seq[idx+i] = (-1) * (numbKmer + 2 + 4);
 				} else {
-					numb_seq[idx+i] = (-1) * numbKmer - 1000000;
+					numb_seq[idx+i] = (-1) * (numbKmer + 2 + 4) - 1000000;
 				}
 				}
 				}
@@ -86,11 +88,12 @@ def kMerCount(file, nK):
 			loc_idx = idx + i;
 			if(loc_idx <= (N*M + numbKmer + 2 + 4 - nK)) {
 				for(k=0; k < nK; k++) {
-					dgt = 1;
-					numb = numb_seq[loc_idx + k];
-					for(p=nK-1-k; p > 0 ; p--) {
-						dgt *= 4;
+					if((nK-1-k)==0) {
+						dgt = 1;
+					} else {
+						dgt = (int)(pow((float)4, (float)(nK-1-k)));
 					}
+					numb = numb_seq[loc_idx + k];
 					ptn_idx += dgt * numb;
 				}
 				ptn_idx += 2 + 4;
@@ -123,9 +126,9 @@ def kMerCount(file, nK):
 	q, r = divmod(seqLen, numbGroups*numbItems)
 	q = q + 1
 	h_seq = np.concatenate((h_seq, np.repeat(78, numbGroups*numbItems-r).astype(CPU_SIDE_INT)))
-	h_numb_seq = np.zeros(np.size(h_seq)).astype(CPU_SIDE_INT)
+	h_numb_seq = np.zeros(h_seq.size).astype(CPU_SIDE_INT)
 	print(q)
-	print(r)
+	print(numbGroups*numbItems-r)
 
 	queue = cl.CommandQueue(context)
 	program = cl.Program(context, kernelsource).build()
@@ -135,8 +138,8 @@ def kMerCount(file, nK):
 	freqTab.set_scalar_arg_dtypes([np.int32, np.int32, np.int32, np.int32, None])
 
 	d_seq = cl.Buffer(context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf = h_seq)
-	d_numb_seq = cl.Buffer(context, cl.mem_flags.READ_WRITE, h_numb_seq.nbytes)
-	cl.enqueue_fill_buffer(queue, d_numb_seq, np.zeros(1).astype(np.int), 0, h_numb_seq.nbytes)
+	d_numb_seq = cl.Buffer(context, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf = h_numb_seq)
+	#cl.enqueue_fill_buffer(queue, d_numb_seq, np.zeros(1).astype(np.int), 0, h_numb_seq.nbytes)
 
 	N = numbGroups*numbItems
 	M = q
@@ -148,6 +151,11 @@ def kMerCount(file, nK):
 	
 	queue.finish()
 
+	cl.enqueue_copy(queue, h_numb_seq, d_numb_seq)
+	
+	print(h_numb_seq[:textLen])
+	print(Counter(h_numb_seq))
+
 	freqTab(queue, globalsize, None, N, M, K, numbKmer, d_numb_seq)
 
 	queue.finish()
@@ -156,6 +164,7 @@ def kMerCount(file, nK):
 
 	print("Counting Done")
 
+	print(h_numb_seq[:textLen])
 	print(h_numb_seq[:numbKmer+2+4])
 	assert(h_numb_seq[0] == 0), "File contains unknown nucleotide characters"
 
@@ -188,11 +197,15 @@ def processOrganChromDict(organChromDict, nK, outfile):
 			f.write("\n")
 
 def main():
+	'''
 	dictChromCat = {'hg38': ([str(i) for i in range(1,23)]+['X','Y']), 'galGal3': ([str(i) for i in range(1,29)]+['32','W','Z']),
 					'dm3': ['2R', '2L', '3R', '3L', '4', 'X'], 'ce10': ['I', 'II', 'III', 'IV', 'V', 'X']}
 	K = 2
 	outFile = "Mission1_Opencl.txt"
 	processOrganChromDict(dictChromCat, K, outFile)
+	'''
+	y = kMerCount('test', 2)
+	print(y)
 
 if __name__=="__main__":
 	rtime = time()
