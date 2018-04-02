@@ -4,20 +4,22 @@ from time import time
 import os
 from collections import Counter
 
+CPU_SIDE_INT = np.int32 #Change this according to architecture
+
 def main():
-	fname = "../data/hg38.chroms/chr1.fa"
-	#fname = "E.ColiGenome.txt" #Toy example
-	K = 2
+	#fname = "../data/hg38.chroms/chr1.fa"
+	fname = "E.ColiGenome.txt" #Toy example
+	K = 1
 	f = open(fname, 'rb')
-	f.readline()
+	#f.readline()
 	data = f.read().upper().splitlines()
 	f.close()
 	data = (''.encode('utf-8')).join(data)
 	#print(Counter(data))
 	#print(len(data))
 	h_seq = np.frombuffer(data, dtype=np.uint8)
-	h_seq = h_seq.astype(np.int)
-	h_seq = np.concatenate((np.zeros(4**K+2).astype(np.int), h_seq))
+	h_seq = h_seq.astype(CPU_SIDE_INT)
+	h_seq = np.concatenate((np.zeros(4**K+2).astype(CPU_SIDE_INT), h_seq))
 
 	kernelsource = '''
 	__kernel void mapToNumb(
@@ -113,17 +115,17 @@ def main():
 	seqLen = np.size(h_seq) - 4**K - 2
 	q, r = divmod(seqLen, numbGroups*numbItems)
 	q = q + 1
-	h_seq = np.concatenate((h_seq, np.repeat(78, numbGroups*numbItems-r).astype(np.int)))
-	h_numb_seq = np.zeros(np.size(h_seq)).astype(np.int)
+	h_seq = np.concatenate((h_seq, np.repeat(78, numbGroups*numbItems-r).astype(CPU_SIDE_INT)))
+	h_numb_seq = np.zeros(np.size(h_seq)).astype(CPU_SIDE_INT)
 	print(q)
 	print(r)
 
 	queue = cl.CommandQueue(context)
 	program = cl.Program(context, kernelsource).build()
 	mapToNumb = program.mapToNumb
-	mapToNumb.set_scalar_arg_dtypes([np.int32, np.int32, np.int32, None, None])
+	mapToNumb.set_scalar_arg_dtypes([CPU_SIDE_INT, CPU_SIDE_INT, CPU_SIDE_INT, None, None])
 	freqTab = program.freqTab
-	freqTab.set_scalar_arg_dtypes([np.int32, np.int32, np.int32, np.int32, None, None])
+	freqTab.set_scalar_arg_dtypes([CPU_SIDE_INT, CPU_SIDE_INT, CPU_SIDE_INT, CPU_SIDE_INT, None, None])
 
 	d_seq = cl.Buffer(context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf = h_seq)
 	d_numb_seq = cl.Buffer(context, cl.mem_flags.WRITE_ONLY, h_numb_seq.nbytes)
@@ -145,7 +147,7 @@ def main():
 	#print(Counter(h_numb_seq))
 
 	d_numb_seq = cl.Buffer(context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf = h_numb_seq)
-	h_freq_seq = np.zeros(np.size(h_seq)).astype(np.int)
+	h_freq_seq = np.zeros(np.size(h_seq)).astype(CPU_SIDE_INT)
 	d_freq_seq = cl.Buffer(context, cl.mem_flags.WRITE_ONLY, h_freq_seq.nbytes)
 	cl.enqueue_fill_buffer(queue, d_freq_seq, np.zeros(1).astype(np.int), 0, h_freq_seq.nbytes)
 
